@@ -1,7 +1,6 @@
-# /home/andre/company-alerts/config.json
 {
   "server_url": "https://alerts.mycompany.com",
-  "token": "REPLACE_ME",
+  "token": "REPLACE_ME_IN_CONFIG_OR_USE_ENV",
   "use_websocket": true,
   "poll_interval_seconds": 30,
   "notify_types": ["defect", "complaint"],
