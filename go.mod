@@ -1,18 +1,15 @@
 // /home/andre/company-alerts/go.mod
 module github.com/yourorg/company-alerts
 
-go 1.23.0
-
-toolchain go1.23.2
+go 1.20
 
 require (
-	github.com/getlantern/systray v1.2.2 // Using a recent version
-	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4 // indirect; Most widely used version
-	github.com/gorilla/websocket v1.5.1 // Keep versions that worked
-	github.com/lib/pq v1.10.9 // Keep versions that worked
+	github.com/gen2brain/beeep v0.0.0-20240516210008-9c006672e7f4
+	github.com/getlantern/systray v1.2.2
+	github.com/google/uuid v1.4.0
+	github.com/gorilla/websocket v1.5.1
+	github.com/lib/pq v1.10.9
 )
-
-require github.com/gen2brain/beeep v0.0.0-20240516210008-9c006672e7f4
 
 require (
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
@@ -22,12 +19,13 @@ require (
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
+	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af // indirect
 	golang.org/x/net v0.17.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
 )
 
 // Add replace directives if using local forks, otherwise leave empty.

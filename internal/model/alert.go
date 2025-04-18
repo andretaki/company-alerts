@@ -5,23 +5,26 @@ import (
 	"time"
 )
 
-// Alert defines the structure of an incoming alert.
-// This is now the central definition used across packages.
+// Alert represents an alert notification that can be sent to clients
 type Alert struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Severity  int    `json:"severity"`
-	Timestamp int64  `json:"timestamp"` // Unix Milliseconds UTC
-	Summary   string `json:"summary"`
-	Detail    string `json:"detail"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Message   string    `json:"message"`
+	Level     string    `json:"level"` // info, warning, error, critical
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // Time returns the timestamp as a time.Time object.
 func (a Alert) Time() time.Time {
-	return time.UnixMilli(a.Timestamp)
+	return a.Timestamp
 }
 
 // String provides a concise string representation of the alert.
 func (a Alert) String() string {
-	return fmt.Sprintf("[%s][Sev:%d] %s", a.Type, a.Severity, a.Summary)
+	return fmt.Sprintf("[%s] %s", a.Level, a.Message)
+}
+
+// Time returns the current time
+func Time() time.Time {
+	return time.Now()
 }
