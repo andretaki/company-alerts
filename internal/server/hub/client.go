@@ -46,7 +46,7 @@ type Client struct {
 // reads from this goroutine.
 func (c *Client) ReadPump() {
 	defer func() {
-		c.Hub.unregister <- c
+		c.Hub.Unregister <- c
 		c.Conn.Close()
 		log.Printf("Closed ReadPump for client: %s", c.Conn.RemoteAddr())
 	}()

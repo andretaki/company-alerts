@@ -1,7 +1,8 @@
+// cmd/alerts-server/main.go
 package main
 
 import (
-	"context"
+	"context" // Needed for sql.ErrNoRows check in healthz
 	"errors"
 	"log"
 	"net/http"
@@ -10,10 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid" // For test data ID
 	// Import server packages
+	"github.com/yourorg/company-alerts/internal/model" // For test data
 	"github.com/yourorg/company-alerts/internal/server/config"
 	"github.com/yourorg/company-alerts/internal/server/handlers"
 	"github.com/yourorg/company-alerts/internal/server/hub"
+	"github.com/yourorg/company-alerts/internal/storage" // Import storage
 )
 
 func main() {
@@ -27,30 +31,57 @@ func main() {
 	}
 	log.Printf("Server configuration loaded. Port: %s, Allowed Tokens Loaded: %d", cfg.Port, len(cfg.AllowedTokens))
 	if len(cfg.AllowedTokens) == 0 {
-		log.Println("WARNING: Server starting with NO allowed tokens. No clients can authenticate via config.")
+		log.Println("WARNING: Server starting with NO allowed tokens. No clients or API calls can authenticate.")
 	}
 
-	// 2. Create and Run WebSocket Hub
+	// 2. Initialize Database Connection
+	db, err := storage.Open() // Use the storage package's Open function
+	if err != nil {
+		log.Fatalf("FATAL: Failed to connect to database: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Error closing database: %v", err)
+		} else {
+			log.Println("Database connection closed.")
+		}
+	}()
+	log.Println("Database connection established and schema verified.")
+
+	// 3. Create and Run WebSocket Hub
 	websocketHub := hub.NewHub()
 	go websocketHub.Run() // Run the hub's event loop in the background
 
-	// 3. Initialize alert store and handlers
-	alertStore := handlers.NewInMemoryAlertStore()
-	alertsHandler := handlers.NewAlertsHandler(alertStore, websocketHub, cfg)
+	// 4. Initialize handlers using the DB connection
+	// --- REMOVED alertStore := handlers.NewInMemoryAlertStore() ---
+	alertsHandler := handlers.NewAlertsHandler(db, websocketHub, cfg) // Pass db directly
 
-	// 4. Setup HTTP Server and Routes
+	// 5. Add some test data if needed (Now uses the DB)
+	if os.Getenv("ADD_TEST_DATA") == "true" {
+		addTestData(db, websocketHub) // Pass DB and Hub
+	}
+
+	// 6. Setup HTTP Server and Routes
 	mux := http.NewServeMux()
 
 	// WebSocket endpoint - Requires token in query param: ws://.../ws?token=...
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		handlers.ServeWs(cfg, websocketHub, w, r)
+		handlers.ServeWs(cfg, websocketHub, w, r) // Pass config and hub
 	})
 
-	// Alert API endpoints
+	// Alert API endpoints (Now handles /api/alerts/ and /api/alerts/{id})
 	alertsHandler.RegisterAlertRoutes(mux)
 
 	// Simple health check endpoint
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// Check DB connection
+		pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := db.PingContext(pingCtx); err != nil {
+			log.Printf("Health check failed: DB ping error: %v", err)
+			http.Error(w, "Not OK - DB Error", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
@@ -58,47 +89,96 @@ func main() {
 	// Static file handling (for client UI if needed)
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
-		staticDir = "./static"
+		staticDir = "./static" // Default static dir
 	}
-	fs := http.FileServer(http.Dir(staticDir))
-	mux.Handle("/", fs)
+	// Check if static dir exists before serving
+	if _, err := os.Stat(staticDir); err == nil {
+		log.Printf("Serving static files from %s on /", staticDir)
+		fs := http.FileServer(http.Dir(staticDir))
+		mux.Handle("/", http.StripPrefix("/", fs))
+	} else if errors.Is(err, os.ErrNotExist) {
+		log.Printf("Static directory '%s' not found, skipping static file serving.", staticDir)
+	} else {
+		log.Printf("Error checking static directory '%s': %v. Skipping static file serving.", staticDir, err)
+	}
 
-	// 5. Configure HTTP Server
+	// 7. Configure HTTP Server
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      mux, // Use the mux we defined
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 6. Start Server with Graceful Shutdown
-	// Run server in a goroutine so that it doesn't block.
+	// 8. Start Server with Graceful Shutdown
 	go func() {
 		log.Printf("Server listening on port %s", cfg.Port)
 		log.Printf("WebSocket endpoint: ws://localhost:%s/ws", cfg.Port)
-		log.Printf("API endpoint: http://localhost:%s/api/alerts", cfg.Port)
+		log.Printf("API endpoints: http://localhost:%s/api/alerts/", cfg.Port)
+		log.Printf("Health check: http://localhost:%s/healthz", cfg.Port)
 
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Could not listen on %s: %v\n", cfg.Port, err)
 		}
-		log.Println("Server stopped")
+		log.Println("Server stopped listening.")
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
+	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit // Block until signal is received
-	log.Println("Shutdown signal received, initiating graceful shutdown...")
+	sig := <-quit // Block until signal is received
+	log.Printf("Shutdown signal (%s) received, initiating graceful shutdown...", sig)
 
-	// The context is used to inform the server it has 5 seconds to finish
-	// the requests it is currently handling
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Create context with timeout for shutdown
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
 
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+	// Attempt graceful shutdown
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown failed: %v. Forcing exit.", err)
+		_ = db.Close() // Attempt to close DB even on unclean HTTP shutdown
+		os.Exit(1)
 	}
 
-	log.Println("Server exiting")
+	log.Println("Server exiting gracefully.")
+}
+
+// addTestData adds sample alerts to the database.
+func addTestData(db *storage.DB, hub *hub.Hub) {
+	log.Println("Adding test data...")
+	testAlerts := []model.Alert{
+		{
+			ID: uuid.NewString(), Type: "order_error", Severity: 3, Timestamp: time.Now().UTC().Add(-5 * time.Minute),
+			Title: "Incorrect Item Shipped", Message: "Order #12345 shipped with item SKU-B instead of SKU-A.",
+			Source: "OrderSystem", ReferenceID: "12345", Status: "new",
+		},
+		{
+			ID: uuid.NewString(), Type: "complaint", Severity: 2, Timestamp: time.Now().UTC().Add(-10 * time.Minute),
+			Title: "Late Delivery Complaint", Message: "Customer C789 reported delivery for order #67890 was 2 days late.",
+			Source: "CRM", ReferenceID: "C789", Status: "investigating",
+		},
+		{
+			ID: uuid.NewString(), Type: "system", Severity: 1, Timestamp: time.Now().UTC().Add(-2 * time.Minute),
+			Title: "Scheduled Maintenance", Message: "Billing service will undergo maintenance tonight 2-3 AM UTC.",
+			Source: "Ops", Status: "new",
+		},
+		{
+			ID: uuid.NewString(), Type: "security", Severity: 4, Timestamp: time.Now().UTC().Add(-1 * time.Minute),
+			Title: "Potential Brute Force Attack", Message: "Multiple failed login attempts detected for user 'admin'.",
+			Source: "AuthService", Status: "new", ReferenceID: "admin",
+		},
+	}
+
+	ctx := context.Background()
+	for _, alert := range testAlerts {
+		if err := db.SaveAlert(ctx, alert); err != nil {
+			log.Printf("Error adding/updating test alert %s: %v", alert.ID, err)
+		} else {
+			log.Printf("Added/Updated test alert: %s", alert.String())
+			// Broadcast test data to connected clients
+			hub.Broadcast <- alert
+		}
+	}
+	log.Println("Test data addition complete.")
 }

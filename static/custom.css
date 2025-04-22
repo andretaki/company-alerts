@@ -1,0 +1,40 @@
+/* static/custom.css */
+:root {
+    --bs-primary: #6f42c1; /* Change primary color (purple) */
+    --bs-primary-rgb: 111, 66, 193;
+    --bs-body-font-family: 'Inter', sans-serif; /* Use a different font (needs import) */
+    --bs-border-radius: 0.4rem; /* Slightly rounder corners */
+  }
+  
+  /* Import a Google Font (add to <head> in HTML or here) */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+  
+  body {
+    background-color: #e9ecef; /* Lighter gray background */
+  }
+  
+  .form-container {
+    border-top: 5px solid var(--bs-primary); /* Add a colored top border */
+    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, .08); /* Softer shadow */
+  }
+  
+  h1 {
+    color: var(--bs-primary);
+    font-weight: 700; /* Bolder heading */
+  }
+  
+  .btn-primary {
+      /* Make button match the new primary color */
+      --bs-btn-bg: var(--bs-primary);
+      --bs-btn-border-color: var(--bs-primary);
+      --bs-btn-hover-bg: #5a359a; /* Darker purple on hover */
+      --bs-btn-hover-border-color: #5a359a;
+      font-weight: bold;
+      padding: 0.75rem 1.25rem; /* Slightly larger button */
+  }
+  
+  /* Add more specific overrides for inputs, labels, alerts etc. */
+  .form-control:focus {
+      border-color: rgba(var(--bs-primary-rgb), 0.5);
+      box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25);
+  }

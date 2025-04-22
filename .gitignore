@@ -1,2 +1,28 @@
-.env
+# Environment variables
+.env*
+!.env.example
+
+# Compiled client binary (adjust name if needed)
 company-alerts-client
+company-alerts-client.exe
+
+# Compiled server binary (adjust name if needed)
+company-alerts-server
+company-alerts-server.exe
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Go build cache
+/vendor/
+*.log
+*.out
+*.test
+
+# Temp files (like extracted icons)
+company-alerts-icon-*.png
+
+# IDE directories
+.vscode/
+.idea/

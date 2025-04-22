@@ -15,60 +15,75 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	// CheckOrigin prevents CSRF attacks. Adjust for your needs.
-	// Allow requests from any origin for simplicity in dev, OR specific origins.
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all for now - **REVIEW THIS FOR PRODUCTION**
-		// You might want to check r.Header.Get("Origin") against a list of allowed domains.
-		return true
+		// TODO: Implement proper origin checking for production.
+		// Example: Check r.Header.Get("Origin") against a list of allowed domains.
+		// allowedOrigins := []string{"http://localhost:3000", "https://yourfrontend.com"}
+		// origin := r.Header.Get("Origin")
+		// for _, allowed := range allowedOrigins {
+		//     if origin == allowed {
+		//         return true
+		//     }
+		// }
+		// log.Printf("WARN: WebSocket connection rejected due to invalid origin: %s", origin)
+		// return false
+		return true // Allow all origins for now (development)
+	},
+	Error: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
+		// Log WebSocket upgrade errors
+		log.Printf("ERROR: WebSocket upgrade failed for %s: status=%d, reason=%v", r.RemoteAddr, status, reason)
+		// Default behavior is to write an HTTP error response, which is fine.
+		http.Error(w, reason.Error(), status)
 	},
 }
 
 // ServeWs handles websocket requests from clients.
 func ServeWs(srvCfg *config.ServerConfig, h *hub.Hub, w http.ResponseWriter, r *http.Request) {
-	// 1. Authentication
+	// 1. Authentication (via query parameter for WebSocket)
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		log.Println("WebSocket connection attempt rejected: missing token")
-		http.Error(w, "Missing token", http.StatusUnauthorized)
+		log.Println("WARN: WebSocket connection attempt rejected: missing token query parameter")
+		http.Error(w, "Missing token", http.StatusUnauthorized) // 401 Unauthorized
 		return
 	}
 	if !srvCfg.IsTokenAllowed(token) {
-		log.Printf("WebSocket connection attempt rejected: invalid token provided (prefix: %s...)", token[:min(len(token), 4)])
-		http.Error(w, "Invalid token", http.StatusForbidden) // Use Forbidden instead of Unauthorized
+		log.Printf("WARN: WebSocket connection attempt rejected: invalid token provided (prefix: %s...) for %s", token[:min(len(token), 4)], r.RemoteAddr)
+		http.Error(w, "Invalid token", http.StatusForbidden) // 403 Forbidden for invalid token
 		return
 	}
-	log.Printf("WebSocket token accepted for client: %s", r.RemoteAddr)
+	// Optionally log successful auth, maybe less verbosely
+	// log.Printf("INFO: WebSocket token accepted for client: %s", r.RemoteAddr)
 
-	// 2. Upgrade connection
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// 2. Upgrade HTTP connection to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil) // Pass nil response header
 	if err != nil {
-		log.Printf("Failed to upgrade WebSocket connection for %s: %v", r.RemoteAddr, err)
-		// Upgrader writes HTTP error response automatically
+		// Error logged by the upgrader's Error function.
+		// Upgrader automatically sends appropriate HTTP error response.
 		return
 	}
-	log.Printf("WebSocket connection upgraded for: %s", r.RemoteAddr)
+	log.Printf("INFO: WebSocket connection successfully upgraded for: %s", r.RemoteAddr)
 
-	// 3. Create and register client
+	// 3. Create a new client instance
 	client := &hub.Client{
 		Hub:  h,
 		Conn: conn,
-		Send: make(chan model.Alert, 256), // Create buffered channel for client
+		Send: make(chan model.Alert, 256), // Buffered channel for outgoing alerts to this client
 	}
+
+	// 4. Register the client with the hub
 	client.Hub.Register <- client
 
-	// 4. Start reader/writer goroutines
-	// Allow collection of memory referenced by the caller by doing all work in
-	// new goroutines.
+	// 5. Start the client's read and write pumps in separate goroutines.
+	// This allows the HTTP handler to return immediately, while the pumps
+	// handle the lifecycle of the WebSocket connection.
 	go client.WritePump()
 	go client.ReadPump()
 
-	// The HTTP handler returns now, the goroutines handle the connection lifecycle.
+	// The handler function returns; the goroutines manage the connection.
 }
 
-// Helper for logging token prefix
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// Helper for logging token prefix (already defined in alerts.go, keep consistent)
+// func min(a, b int) int {
+// 	if a < b { return a }
+// 	return b
+// }

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin - Create Alert</title>
+    <!-- Bootstrap CSS -->
+    <link href="bootstrap.min.css" rel="stylesheet">
+    <!-- HTMX Core -->
+    <script src="htmx.min.js" defer></script>
+    <!-- HTMX JSON Encoding Extension -->
+    <script src="json-enc.js" defer></script>
+    <head>
+        ...
+        <link href="bootstrap.min.css" rel="stylesheet">
+        <link href="custom.css" rel="stylesheet"> <!-- Add this line -->
+        ...
+    </head>
+    <style>
+        
+        /* Custom styles */
+        body { padding-top: 2rem; padding-bottom: 2rem; background-color: #f8f9fa; }
+        .form-container { background-color: #fff; padding: 2rem; border-radius: 0.5rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.1); }
+        /* Hide spinner by default */
+        .htmx-indicator{ display:none; opacity: 0; transition: opacity 200ms ease-in; }
+        /* Show spinner when htmx-request class is present */
+        .htmx-request .htmx-indicator{ display:inline-block; opacity: 1; margin-left: 0.5em; }
+        .htmx-request.htmx-request .htmx-indicator{ display:inline-block; opacity: 1; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-10 col-lg-8">
+                <div class="form-container">
+                    <h1 class="mb-3">Create New Alert</h1>
+                    <p class="lead mb-4">Use this form to send system-wide alerts.</p>
+
+                    <div class="mb-4">
+                         <label for="admin-token" class="form-label fw-bold">Admin API Token*</label>
+                         <input type="password" class="form-control form-control-lg" id="admin-token" name="admin_token" required placeholder="Paste your Admin Bearer Token">
+                         <div class="form-text">Required to authorize the request. Not stored locally after use.</div>
+                    </div>
+
+                    <hr class="mb-4">
+
+                    <!-- Alert Form -->
+                    <form id="alert-form"
+                          hx-post="/api/alerts/"
+                          hx-trigger="submit"
+                          hx-ext="json-enc"
+                          hx-target="#response-message"
+                          hx-swap="innerHTML"
+                          hx-indicator="#spinner">
+
+                        <!-- Required Fields -->
+                        <div class="row g-3 mb-3">
+                             <div class="col-md-6">
+                                <label for="type" class="form-label">Type*</label>
+                                <input type="text" class="form-control" id="type" name="type" required placeholder="e.g., announcement, system">
+                             </div>
+                             <div class="col-md-6">
+                                <label for="severity" class="form-label">Severity*</label>
+                                <select class="form-select" id="severity" name="severity" required>
+                                    <option value="1">1 (Low)</option>
+                                    <option value="2" selected>2 (Medium)</option>
+                                    <option value="3">3 (High)</option>
+                                    <option value="4">4 (Critical)</option>
+                                </select>
+                             </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Title*</label>
+                            <input type="text" class="form-control" id="title" name="title" required placeholder="Concise headline of the alert">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="message" class="form-label">Message*</label>
+                            <textarea class="form-control" id="message" name="message" required placeholder="Full details of the alert message." rows="5"></textarea>
+                        </div>
+
+                        <!-- Optional Fields Accordion -->
+                        <div class="accordion mb-4" id="optionalFieldsAccordion">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="headingOne">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                                        Optional Fields
+                                    </button>
+                                </h2>
+                                <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#optionalFieldsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="row g-3 mb-3">
+                                             <div class="col-md-6">
+                                                <label for="source" class="form-label">Source</label>
+                                                <input type="text" class="form-control" id="source" name="source" placeholder="e.g., Admin, OpsTeam">
+                                            </div>
+                                             <div class="col-md-6">
+                                                <label for="reference_id" class="form-label">Reference ID</label>
+                                                <input type="text" class="form-control" id="reference_id" name="reference_id" placeholder="e.g., Ticket-123">
+                                            </div>
+                                        </div>
+                                         <div class="mb-3">
+                                            <label for="status" class="form-label">Status</label>
+                                            <select class="form-select" id="status" name="status">
+                                                <option value="" selected>(Default: new)</option>
+                                                <option value="new">New</option>
+                                                <option value="investigating">Investigating</option>
+                                                <option value="resolved">Resolved</option>
+                                                <option value="acknowledged">Acknowledged</option>
+                                                <option value="closed">Closed</option>
+                                                <option value="ignored">Ignored</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="image_url" class="form-label">Image URL</label>
+                                            <input type="url" class="form-control" id="image_url" name="image_url" placeholder="https://...">
+                                            <div class="form-text">URL of an image associated with the alert.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary btn-lg w-100" type="submit">
+                            Send Alert
+                            <span id="spinner" class="spinner-border spinner-border-sm htmx-indicator" role="status" aria-hidden="true"></span>
+                        </button>
+                    </form>
+
+                    <!-- Response Area -->
+                    <div id="response-message" class="mt-4" role="alert" aria-live="polite">
+                        <!-- Feedback will be loaded here by HTMX -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bootstrap Bundle JS (including Popper) -->
+    <script src="bootstrap.bundle.min.js"></script>
+    <!-- Your custom JS for HTMX event handling -->
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const alertForm = document.getElementById('alert-form');
+            const responseMessageDiv = document.getElementById('response-message');
+            const tokenInput = document.getElementById('admin-token');
+
+            // Add Authorization Header using htmx:configRequest event
+            alertForm.addEventListener('htmx:configRequest', function (evt) {
+                responseMessageDiv.innerHTML = ''; // Clear previous messages
+                const token = tokenInput.value.trim();
+                if (!token) {
+                    responseMessageDiv.innerHTML = `<div class="alert alert-danger" role="alert">Admin API Token is required.</div>`;
+                    evt.preventDefault(); // Stop the HTMX request
+                    return;
+                }
+                evt.detail.headers['Authorization'] = 'Bearer ' + token;
+                evt.detail.headers['Accept'] = 'application/json'; // Good practice
+            });
+
+            // Handle Successful Response
+            alertForm.addEventListener('htmx:afterRequest', function (evt) {
+                const xhr = evt.detail.xhr;
+                if (evt.detail.successful) {
+                    if (xhr.status === 201) {
+                         try {
+                             const createdAlert = JSON.parse(xhr.responseText);
+                             responseMessageDiv.innerHTML = `<div class="alert alert-success" role="alert">✅ Alert created successfully! ID: ${createdAlert.id || 'N/A'}</div>`;
+                         } catch (e) {
+                              responseMessageDiv.innerHTML = `<div class="alert alert-success" role="alert">✅ Alert created successfully! (Could not parse response ID)</div>`;
+                         }
+                        alertForm.reset();
+                    } else {
+                         responseMessageDiv.innerHTML = `<div class="alert alert-warning" role="alert">Request completed with status: ${xhr.status}. Response: ${xhr.responseText}</div>`;
+                    }
+                }
+                // Error case handled by htmx:responseError
+            });
+
+            // Handle Failed Response (Network Error or >= 400 Status)
+            alertForm.addEventListener('htmx:responseError', function (evt) {
+                const xhr = evt.detail.xhr;
+                let errorMsg = `Error: ${xhr.status} ${xhr.statusText || 'Request Failed'}`;
+                if (xhr.responseText) {
+                    try {
+                        const errorResponse = JSON.parse(xhr.responseText);
+                        errorMsg = `Error ${xhr.status}: ${errorResponse.message || errorResponse.error || 'Unknown server error'}`;
+                    } catch (e) {
+                         const text = xhr.responseText.substring(0, 200);
+                         errorMsg = `Error ${xhr.status}. Server response: ${text}`;
+                    }
+                }
+                 responseMessageDiv.innerHTML = `<div class="alert alert-danger" role="alert">❌ ${errorMsg}</div>`;
+            });
+
+             // Handle HTMX sending error
+            alertForm.addEventListener('htmx:sendError', function(evt) {
+                 responseMessageDiv.innerHTML = `<div class="alert alert-danger" role="alert">❌ Network error. Could not send request. Please check connection.</div>`;
+                 console.error("HTMX Send Error:", evt.detail.error);
+            });
+        });
+    </script>
+</body>
+</html>

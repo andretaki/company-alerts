@@ -1,95 +1,127 @@
-// /home/andre/company-alerts/internal/config/config.go
+// internal/config/config.go
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"slices" // Requires Go 1.21+
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/yourorg/company-alerts/internal/model" // Import the new model package
+	"github.com/yourorg/company-alerts/internal/model" // Use the unified model
 )
 
-const (
-	// TokenEnvVar defines the environment variable name for the API token.
-	TokenEnvVar = "ALERTS_TOKEN" // Changed from local var to const
-)
-
-// Config holds the application's configuration settings.
+// Config holds the client application's configuration settings.
 type Config struct {
-	ServerURL        string   `json:"server_url"`
-	Token            string   `json:"token"` // Might be overridden by env var
-	UseWebSocket     bool     `json:"use_websocket"`
-	PollIntervalSecs int      `json:"poll_interval_seconds"`
-	NotifyTypes      []string `json:"notify_types"` // Empty means allow all types
-	MinSeverity      int      `json:"min_severity"`
+	ServerURL    string
+	Token        string
+	UseWebSocket bool
+	PollInterval time.Duration
+	NotifyTypes  []string // Empty means allow all types
+	MinSeverity  int
 
-	// Derived field for convenience
-	PollInterval time.Duration `json:"-"`
+	// Optional: HistoryFetchLimit int // How many alerts to fetch for history view
 }
 
-// Load reads the configuration file and applies environment variable overrides.
-func Load(path string) (*Config, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
+// Load loads configuration from environment variables.
+func Load() (*Config, error) {
+	c := Config{
+		// Set defaults
+		UseWebSocket: true,
+		PollInterval: 30 * time.Second,
+		MinSeverity:  1, // Default to show severity 1 and up
+		// HistoryFetchLimit: 50, // Default history limit
+	}
+	var errs []string
+
+	// Required: Server URL
+	c.ServerURL = os.Getenv("ALERTS_SERVER_URL")
+	if c.ServerURL == "" {
+		errs = append(errs, "ALERTS_SERVER_URL environment variable is required")
 	}
 
-	var c Config
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, fmt.Errorf("failed to parse config file %q: %w", path, err)
+	// Required: Token
+	c.Token = os.Getenv("ALERTS_CLIENT_TOKEN")
+	if c.Token == "" {
+		errs = append(errs, "ALERTS_CLIENT_TOKEN environment variable is required")
 	}
 
-	// --- Token Handling ---
-	// Prioritize environment variable for token
-	envToken := os.Getenv(TokenEnvVar)
-	if envToken != "" {
-		log.Printf("Using token from environment variable %s", TokenEnvVar)
-		c.Token = envToken
-	} else {
-		log.Printf("Using token from config file %s (Consider using %s env var for security)", path, TokenEnvVar)
-		// Validate token from file if env var wasn't used
-		if c.Token == "" || c.Token == "REPLACE_ME" {
-			return nil, fmt.Errorf("config validation failed: token is required in %q or via %s env var (and should not be 'REPLACE_ME')", path, TokenEnvVar)
+	// Optional: Use WebSocket (default true)
+	if wsEnv := os.Getenv("ALERTS_USE_WEBSOCKET"); wsEnv != "" {
+		if val, err := strconv.ParseBool(wsEnv); err == nil {
+			c.UseWebSocket = val
+		} else {
+			log.Printf("Warning: Invalid boolean value for ALERTS_USE_WEBSOCKET: '%s'. Using default: %t", wsEnv, c.UseWebSocket)
 		}
 	}
-	// Final check after potential override
-	if c.Token == "" {
-		// Should not happen if validation above is correct, but defensive check.
-		return nil, fmt.Errorf("config validation failed: token is missing")
+
+	// Optional: Poll Interval (default 30s)
+	if pollEnv := os.Getenv("ALERTS_POLL_INTERVAL_SECONDS"); pollEnv != "" {
+		if secs, err := strconv.Atoi(pollEnv); err == nil && secs > 0 {
+			c.PollInterval = time.Duration(secs) * time.Second
+		} else {
+			log.Printf("Warning: Invalid integer value for ALERTS_POLL_INTERVAL_SECONDS: '%s'. Using default: %v", pollEnv, c.PollInterval)
+		}
 	}
 
-	// --- Basic validation and derived fields ---
-	if c.ServerURL == "" {
-		return nil, fmt.Errorf("config validation failed: server_url is required")
+	// Optional: Notify Types (comma-separated, default all)
+	if typesEnv := os.Getenv("ALERTS_NOTIFY_TYPES"); typesEnv != "" {
+		parts := strings.Split(typesEnv, ",")
+		c.NotifyTypes = []string{} // Reset default if env var is set
+		for _, t := range parts {
+			trimmed := strings.TrimSpace(t)
+			if trimmed != "" {
+				c.NotifyTypes = append(c.NotifyTypes, trimmed)
+			}
+		}
 	}
-	if c.PollIntervalSecs <= 0 {
-		c.PollIntervalSecs = 30 // Default if invalid
-	}
-	c.PollInterval = time.Duration(c.PollIntervalSecs) * time.Second
 
-	if c.MinSeverity < 0 {
-		c.MinSeverity = 0 // Ensure severity is non-negative
+	// Optional: Min Severity (default 1)
+	if sevEnv := os.Getenv("ALERTS_MIN_SEVERITY"); sevEnv != "" {
+		if sev, err := strconv.Atoi(sevEnv); err == nil && sev >= 0 {
+			c.MinSeverity = sev
+		} else {
+			log.Printf("Warning: Invalid integer value for ALERTS_MIN_SEVERITY: '%s'. Using default: %d", sevEnv, c.MinSeverity)
+		}
 	}
+
+	// Optional: History Fetch Limit
+	// if histEnv := os.Getenv("ALERTS_HISTORY_FETCH_LIMIT"); histEnv != "" {
+	//  if limit, err := strconv.Atoi(histEnv); err == nil && limit > 0 && limit <= 1000 {
+	//      c.HistoryFetchLimit = limit
+	//  } else {
+	//      log.Printf("Warning: Invalid integer value for ALERTS_HISTORY_FETCH_LIMIT: '%s'. Using default: %d", histEnv, c.HistoryFetchLimit)
+	//  }
+	// }
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("configuration errors:\n- %s", strings.Join(errs, "\n- "))
+	}
+
+	// Note: Logging the loaded config is done in main.go after successful load
 
 	return &c, nil
 }
 
 // ShouldNotify determines if an alert meets the configured criteria for notification.
-// Accepts model.Alert for potential future flexibility, though currently only uses type/severity.
 func (c *Config) ShouldNotify(alert model.Alert) bool {
 	// Check severity first
 	if alert.Severity < c.MinSeverity {
 		return false
 	}
 
-	// If NotifyTypes is empty, all types matching severity are allowed
+	// If NotifyTypes is empty or nil, all types matching severity are allowed
 	if len(c.NotifyTypes) == 0 {
 		return true
 	}
 
-	// Check if the alert type is in the allowed list
-	return slices.Contains(c.NotifyTypes, alert.Type)
+	// Check if the alert type is in the allowed list (case-insensitive)
+	for _, allowedType := range c.NotifyTypes {
+		if strings.EqualFold(alert.Type, allowedType) {
+			return true
+		}
+	}
+	// Type not found in the allowed list
+	return false
 }
